@@ -1,0 +1,146 @@
+You are a senior mobile engineer.
+
+I am building a mobile app called "ResiboCash" that should function like Fetch Rewards (receipt scanning rewards app), but this is an MVP clone.
+
+---
+
+## 🎯 Goal
+
+Build a simple mobile app (React Native with Expo) that mimics the core experience of Fetch Rewards.
+
+---
+
+## 📱 CORE FEATURES (FETCH-STYLE)
+
+### 1. Home Screen
+
+* Show:
+
+  * Current points balance
+  * Button: "Scan Receipt"
+
+---
+
+### 2. Camera Screen
+
+* Use Expo Camera
+* Capture receipt image
+* Show preview
+* Buttons:
+
+  * Retake
+  * Submit
+
+---
+
+### 3. Upload + Processing
+
+* On submit:
+
+  * Send image to backend API (mock allowed)
+  * Show loading screen:
+    "Scanning your receipt..."
+
+---
+
+### 4. Results Screen
+
+Display:
+
+* Store name
+* Total amount
+* Points earned
+
+---
+
+### 5. Points System
+
+points = floor(total / 10)
+
+---
+
+### 6. Points Balance
+
+* Track total points
+* Update after each scan
+
+---
+
+## 🔌 API (Mock for now)
+
+POST /receipts/upload
+
+Return:
+{
+"store": "SM Supermarket",
+"total": 1250,
+"points": 125
+}
+
+---
+
+## 📦 OUTPUT REQUIRED
+
+### 1. Full React Native App Code
+
+* App.js / App.tsx
+* Navigation (React Navigation)
+* Home screen
+* Camera screen
+* Results screen
+
+---
+
+### 2. State Management
+
+* Store points balance locally (useState or Context)
+
+---
+
+### 3. Camera Implementation
+
+* Permissions
+* Capture image
+* Handle errors
+
+---
+
+### 4. API Integration
+
+* Upload image using fetch
+* Handle loading + errors
+
+---
+
+### 5. UI
+
+* Clean, mobile-first
+* Simple layout (similar to Fetch Rewards)
+
+---
+
+## ⚠️ CONSTRAINTS
+
+* MOBILE APP ONLY
+* No authentication
+* No payments
+* No real OCR yet (mock response is fine)
+
+---
+
+## 🎯 BONUS
+
+* Add loading spinner
+* Add success animation
+* Prevent multiple rapid uploads
+
+---
+
+## 🧪 RUN
+
+App must run with:
+npx expo start
+
+---
+
+Be practical. Output full working code.

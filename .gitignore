@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.expo/
+
+# Build outputs
+dist/
+build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Env files
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+web-build/
+expo-env.d.ts
+
+# Server
+server/node_modules/
+
+# Debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*

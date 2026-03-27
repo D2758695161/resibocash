@@ -1,0 +1,21 @@
+{
+  "name": "resibocash-server",
+  "version": "1.0.0",
+  "description": "Mock backend API for ResiboCash",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.2.0",
+    "@azure/storage-blob": "^12.26.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1"
+  }
+}
