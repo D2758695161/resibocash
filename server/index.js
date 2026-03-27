@@ -7,7 +7,20 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://resibocash.azurewebsites.net',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+}));
 app.use(express.json());
 
 // ── Azure clients (lazy-initialized) ──────────────────────────────
@@ -114,17 +127,21 @@ app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
   }
 });
 
-// Get receipt history
+// Get receipt history (optionally filtered by userId query param)
 app.get('/api/receipts', async (req, res) => {
   try {
+    const { userId } = req.query;
     const container = await getCosmosContainer();
     if (container) {
-      const { resources } = await container.items
-        .query('SELECT * FROM c ORDER BY c.date DESC')
-        .fetchAll();
+      const query = userId
+        ? { query: 'SELECT * FROM c WHERE c.userId = @userId ORDER BY c.date DESC', parameters: [{ name: '@userId', value: userId }] }
+        : 'SELECT * FROM c ORDER BY c.date DESC';
+      const { resources } = await container.items.query(query).fetchAll();
       res.json({ success: true, data: resources });
     } else {
-      res.json({ success: true, data: receiptStore.sort((a, b) => new Date(b.date) - new Date(a.date)) });
+      let data = receiptStore.sort((a, b) => new Date(b.date) - new Date(a.date));
+      if (userId) data = data.filter((r) => r.userId === userId);
+      res.json({ success: true, data });
     }
   } catch (err) {
     console.error('Receipts fetch error:', err.message);
@@ -135,6 +152,13 @@ app.get('/api/receipts', async (req, res) => {
 // Redeem reward
 app.post('/api/rewards/redeem', (req, res) => {
   const { rewardId, cost } = req.body;
+
+  if (!rewardId || typeof rewardId !== 'string' || rewardId.trim() === '') {
+    return res.status(400).json({ success: false, error: 'rewardId is required and must be a non-empty string' });
+  }
+  if (cost === undefined || cost === null || typeof cost !== 'number' || cost <= 0 || !Number.isFinite(cost)) {
+    return res.status(400).json({ success: false, error: 'cost is required and must be a positive number' });
+  }
 
   setTimeout(() => {
     res.json({
@@ -169,13 +193,17 @@ app.get('/api/rewards', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
-  console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
-  console.log('Endpoints:');
-  console.log('  POST /api/receipts/upload  - Scan a receipt');
-  console.log('  GET  /api/receipts         - Get receipt history');
-  console.log('  POST /api/rewards/redeem   - Redeem a reward');
-  console.log('  GET  /api/rewards          - Get rewards catalog');
-  console.log('  GET  /api/health           - Health check');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
+    console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
+    console.log('Endpoints:');
+    console.log('  POST /api/receipts/upload  - Scan a receipt');
+    console.log('  GET  /api/receipts         - Get receipt history');
+    console.log('  POST /api/rewards/redeem   - Redeem a reward');
+    console.log('  GET  /api/rewards          - Get rewards catalog');
+    console.log('  GET  /api/health           - Health check');
+  });
+}
+
+module.exports = app;
