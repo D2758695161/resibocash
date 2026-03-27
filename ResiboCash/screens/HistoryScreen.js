@@ -5,6 +5,7 @@ import {
   StyleSheet,
   SafeAreaView,
   FlatList,
+  TouchableOpacity,
 } from 'react-native';
 import { PointsContext } from '../App';
 
@@ -16,9 +17,9 @@ function formatDate(iso) {
   return `${month} ${day}, ${time}`;
 }
 
-function ReceiptItem({ item }) {
+function ReceiptItem({ item, onPress }) {
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.iconWrap}>
         <View style={styles.receiptIcon}>
           <View style={styles.rLine} />
@@ -35,11 +36,11 @@ function ReceiptItem({ item }) {
         <View style={styles.coinDot} />
         <Text style={styles.pointsText}>+{item.points}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
-export default function HistoryScreen() {
+export default function HistoryScreen({ navigation }) {
   const { history } = useContext(PointsContext);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -80,7 +81,9 @@ export default function HistoryScreen() {
           showsVerticalScrollIndicator={false}
           refreshing={refreshing}
           onRefresh={onRefresh}
-          renderItem={({ item }) => <ReceiptItem item={item} />}
+          renderItem={({ item }) => (
+            <ReceiptItem item={item} onPress={() => navigation.navigate('ReceiptDetail', { receipt: item })} />
+          )}
         />
       )}
     </SafeAreaView>

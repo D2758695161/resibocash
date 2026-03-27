@@ -36,9 +36,9 @@ const MENU_SECTIONS = [
   },
 ];
 
-function MenuItem({ item }) {
+function MenuItem({ item, onPress }) {
   return (
-    <TouchableOpacity style={menuStyles.item}>
+    <TouchableOpacity style={menuStyles.item} onPress={onPress}>
       <View style={menuStyles.iconWrap}>
         <Text style={menuStyles.icon}>{item.icon}</Text>
       </View>
@@ -169,7 +169,10 @@ export default function ProfileScreen({ navigation }) {
             <View style={styles.menuCard}>
               {section.items.map((item, j) => (
                 <View key={j}>
-                  <MenuItem item={item} />
+                  <MenuItem
+                    item={item}
+                    onPress={item.label === 'Help Center' ? () => navigation.navigate('Settings') : undefined}
+                  />
                   {j < section.items.length - 1 && <View style={styles.menuDivider} />}
                 </View>
               ))}
