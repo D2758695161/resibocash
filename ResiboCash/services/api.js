@@ -1,3 +1,5 @@
+const API_BASE_URL = 'http://localhost:3001';
+
 const STORES = [
   'SM Supermarket',
   'Robinsons',
@@ -13,22 +15,37 @@ const STORES = [
   'Landers',
 ];
 
+function mockScanResult() {
+  const store = STORES[Math.floor(Math.random() * STORES.length)];
+  const total = (Math.floor(Math.random() * 301) + 10) * 10;
+  const points = Math.floor(total / 10);
+  return { store, total, points };
+}
+
 /**
- * Simulate scanning a receipt image via an API call.
- * Returns the detected store name, purchase total, and earned points
- * after a 2.5-second artificial delay.
+ * Scan a receipt image. Tries the real API first; falls back to mock on failure.
  *
- * @param {string} _imageUri - URI of the captured receipt image (unused in mock)
+ * @param {string} imageUri - URI of the captured receipt image
  * @returns {Promise<{ store: string, total: number, points: number }>}
  */
-export async function scanReceipt(_imageUri) {
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+export async function scanReceipt(imageUri) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUri }),
+    });
 
-  const store = STORES[Math.floor(Math.random() * STORES.length)];
-  const total = (Math.floor(Math.random() * 301) + 10) * 10; // 100 – 3100, multiples of 10
-  const points = Math.floor(total / 10);
+    if (!response.ok) {
+      throw new Error(`Server responded with ${response.status}`);
+    }
 
-  return { store, total, points };
+    return await response.json();
+  } catch (err) {
+    console.warn('scanReceipt API failed, using mock:', err.message);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    return mockScanResult();
+  }
 }
 
 /**
