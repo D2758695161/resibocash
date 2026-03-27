@@ -169,13 +169,17 @@ app.get('/api/rewards', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
-  console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
-  console.log('Endpoints:');
-  console.log('  POST /api/receipts/upload  - Scan a receipt');
-  console.log('  GET  /api/receipts         - Get receipt history');
-  console.log('  POST /api/rewards/redeem   - Redeem a reward');
-  console.log('  GET  /api/rewards          - Get rewards catalog');
-  console.log('  GET  /api/health           - Health check');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
+    console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
+    console.log('Endpoints:');
+    console.log('  POST /api/receipts/upload  - Scan a receipt');
+    console.log('  GET  /api/receipts         - Get receipt history');
+    console.log('  POST /api/rewards/redeem   - Redeem a reward');
+    console.log('  GET  /api/rewards          - Get rewards catalog');
+    console.log('  GET  /api/health           - Health check');
+  });
+}
+
+module.exports = app;
