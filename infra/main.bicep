@@ -10,6 +10,9 @@ param location string = resourceGroup().location
 @description('App name prefix')
 param appName string = 'resibocash'
 
+@description('Budget alert email')
+param budgetAlertEmail string
+
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var appServicePlanName = 'asp-${appName}-${environment}'
 var appServiceName = 'app-${appName}-${environment}-${uniqueSuffix}'
@@ -176,6 +179,45 @@ resource rewardsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/co
       partitionKey: {
         paths: ['/category']
         kind: 'Hash'
+      }
+    }
+  }
+}
+
+// Budget - $150 cap on Azure spend with alerts at 50%, 80%, 100%
+resource budget 'Microsoft.Consumption/budgets@2023-11-01' = {
+  name: 'budget-${appName}-${environment}'
+  properties: {
+    category: 'Cost'
+    amount: 150
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: '2026-04-01'
+    }
+    notifications: {
+      fiftyPercent: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 50
+        contactEmails: [budgetAlertEmail]
+        contactRoles: ['Owner']
+        thresholdType: 'Actual'
+      }
+      eightyPercent: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 80
+        contactEmails: [budgetAlertEmail]
+        contactRoles: ['Owner']
+        thresholdType: 'Actual'
+      }
+      hundredPercent: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 100
+        contactEmails: [budgetAlertEmail]
+        contactRoles: ['Owner']
+        thresholdType: 'Actual'
       }
     }
   }

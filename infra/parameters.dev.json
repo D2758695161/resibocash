@@ -7,6 +7,9 @@
     },
     "appName": {
       "value": "resibocash"
+    },
+    "budgetAlertEmail": {
+      "value": "YOUR_EMAIL@example.com"
     }
   }
 }
