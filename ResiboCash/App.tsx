@@ -12,6 +12,8 @@ import ResultScreen from './screens/ResultScreen';
 import RewardsScreen from './screens/RewardsScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import ReceiptDetailScreen from './screens/ReceiptDetailScreen';
+import SettingsScreen from './screens/SettingsScreen';
 
 export const PointsContext = createContext();
 
@@ -289,6 +291,8 @@ export default function App() {
             }}
           />
           <Stack.Screen name="Result" component={ResultScreen} />
+          <Stack.Screen name="ReceiptDetail" component={ReceiptDetailScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </PointsContext.Provider>
