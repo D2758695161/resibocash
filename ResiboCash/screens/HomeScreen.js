@@ -1,7 +1,8 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
@@ -36,6 +37,13 @@ function StoreCircle({ item }) {
 
 export default function HomeScreen({ navigation }) {
   const { points } = useContext(PointsContext);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredStores = searchQuery.trim()
+    ? STORES.filter((s) =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : STORES;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -61,7 +69,19 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.searchRow}>
           <View style={styles.searchBar}>
             <Text style={styles.searchIcon}>{'\u2315'}</Text>
-            <Text style={styles.searchPlaceholder}>Search for "rewards"</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder='Search for "rewards"'
+              placeholderTextColor="#BDBDBD"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Text style={styles.clearIcon}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.heartBtn}>
             <Text style={styles.heartIcon}>{'\u2665'}</Text>
@@ -117,7 +137,7 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <FlatList
-          data={STORES}
+          data={filteredStores}
           horizontal
           showsHorizontalScrollIndicator={false}
           keyExtractor={(item) => item.id}
@@ -285,9 +305,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#9E9E9E',
   },
-  searchPlaceholder: {
+  searchInput: {
+    flex: 1,
     fontSize: 15,
-    color: '#BDBDBD',
+    color: '#212121',
+    padding: 0,
+  },
+  clearIcon: {
+    fontSize: 14,
+    color: '#9E9E9E',
+    paddingHorizontal: 4,
   },
   heartBtn: {
     width: 48,
