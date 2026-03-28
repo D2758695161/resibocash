@@ -1,258 +1,204 @@
-require('dotenv').config();
+/**
+ * In-memory user points store (replace with DB in production)
+ * Maps userId -> { balance, history[] }
+ */
+const userPoints = new Map();
+
+// Initialize with some test users
+userPoints.set('user_1', { balance: 500, history: [] });
+userPoints.set('user_2', { balance: 1200, history: [] });
+
+/**
+ * Get user point balance
+ */
+function getBalance(userId) {
+  if (!userPoints.has(userId)) {
+    userPoints.set(userId, { balance: 0, history: [] });
+  }
+  return userPoints.get(userId).balance;
+}
+
+/**
+ * Add points to user account (called after receipt scan)
+ */
+function addPoints(userId, amount) {
+  if (!userPoints.has(userId)) {
+    userPoints.set(userId, { balance: 0, history: [] });
+  }
+  const user = userPoints.get(userId);
+  user.balance += amount;
+  user.history.push({ type: 'earn', amount, timestamp: Date.now() });
+  return user.balance;
+}
+
+/**
+ * Validate and deduct points for redemption.
+ * Returns { valid: true/false, error?: string, newBalance?: number }
+ */
+function validateRedemption(userId, cost) {
+  if (!userPoints.has(userId)) {
+    return { valid: false, error: 'User not found' };
+  }
+  const user = userPoints.get(userId);
+  if (user.balance < cost) {
+    return {
+      valid: false,
+      error: `Insufficient balance. Have ${user.balance} points, need ${cost} points.`
+    };
+  }
+  return { valid: true, newBalance: user.balance - cost };
+}
+
+/**
+ * Deduct points after successful redemption
+ */
+function deductPoints(userId, cost) {
+  const user = userPoints.get(userId);
+  user.balance -= cost;
+  user.history.push({ type: 'redeem', amount: cost, timestamp: Date.now() });
+  return user.balance;
+}
+
+// Payout provider integration (GCash / Maya / PayMaya)
+const PAYOUT_PROVIDERS = {
+  gcash: { name: 'GCash', endpoint: 'https://api.gcash.com/bills/payment' },
+  maya: { name: 'Maya', endpoint: 'https://api.maya.com.ph/send-money/v1/transfers' },
+  paymaya: { name: 'PayMaya', endpoint: 'https://api.paymaya.com/v1/payouts' },
+};
+
+async function initiatePayout({ provider, accountNumber, amount, userId }) {
+  // In production, call the actual payout provider API
+  console.log(`[PAYOUT] Initiating ${amount} PHP to ${accountNumber} via ${provider} for user ${userId}`);
+  
+  // Simulate payout API call
+  const payoutProvider = PAYOUT_PROVIDERS[provider];
+  if (!payoutProvider) {
+    throw new Error(`Unknown payout provider: ${provider}`);
+  }
+  
+  // In production:
+  // const response = await fetch(payoutProvider.endpoint, {
+  //   method: 'POST',
+  //   headers: { 'Authorization': `Bearer ${process.env.PAYOUT_API_KEY}` },
+  //   body: JSON.stringify({ accountNumber, amount, description: `ResiboCash reward redemption` })
+  // });
+  // return await response.json();
+  
+  // Placeholder return
+  return {
+    success: true,
+    transactionId: `PAYOUT_${Date.now()}_${userId}`,
+    provider,
+    amount,
+    accountNumber: accountNumber.slice(0, 4) + '****', // Masked
+  };
+}
+
+// =====================================
+// EXPRESS APP SETUP
+// =====================================
 const express = require('express');
-const cors = require('cors');
 const multer = require('multer');
-const { checkDuplicate, logDuplicateAttempt, getFraudLog } = require('./services/imageHash');
+const path = require('path');
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
-const PORT = process.env.PORT || 3001;
-
-const ALLOWED_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://resibocash.azurewebsites.net',
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin ${origin} not allowed`));
-  },
-}));
 app.use(express.json());
 
-// ── Azure clients (lazy-initialized) ──────────────────────────────
-let cosmosContainer = null;
-let blobContainer = null;
+const upload = multer({ storage: multer.memoryStorage() });
 
-async function getCosmosContainer() {
-  if (cosmosContainer) return cosmosContainer;
-  if (!process.env.COSMOS_CONNECTION_STRING) return null;
-
-  const { CosmosClient } = require('@azure/cosmos');
-  const client = new CosmosClient(process.env.COSMOS_CONNECTION_STRING);
-  const { database } = await client.databases.createIfNotExists({ id: 'resibocash' });
-  const { container } = await database.containers.createIfNotExists({
-    id: 'receipts',
-    partitionKey: { paths: ['/userId'] },
-  });
-  cosmosContainer = container;
-  return cosmosContainer;
-}
-
-async function getBlobContainer() {
-  if (blobContainer) return blobContainer;
-  if (!process.env.STORAGE_CONNECTION_STRING) return null;
-
-  const { BlobServiceClient } = require('@azure/storage-blob');
-  const blobService = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING);
-  blobContainer = blobService.getContainerClient('receipts');
-  await blobContainer.createIfNotExists();
-  return blobContainer;
-}
-
-// ── Mock data ─────────────────────────────────────────────────────
-const STORES = [
-  'SM Supermarket', 'Robinsons', 'Puregold', 'Mercury Drug',
-  '7-Eleven', 'Ministop', 'Jollibee', "McDonald's",
-  'Watsons', 'Landmark', 'S&R', 'Landers',
-];
-
-// In-memory store for local dev
-const receiptStore = [];
-
-// ── Routes ────────────────────────────────────────────────────────
+// =====================================
+// API ROUTES
+// =====================================
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'ResiboCash API',
-    version: '1.1.0',
-    mode: process.env.COSMOS_CONNECTION_STRING ? 'azure' : 'mock',
-    features: { duplicateDetection: true },
-  });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Scan receipt with duplicate detection
-app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
+// Get user balance
+app.get('/api/users/:userId/balance', (req, res) => {
+  const { userId } = req.params;
+  res.json({ userId, balance: getBalance(userId) });
+});
+
+// Award points for scanned receipt (called after scanReceipt on client)
+app.post('/api/points/award', (req, res) => {
+  const { userId, points, receiptId } = req.body;
+  if (!userId || !points) {
+    return res.status(400).json({ error: 'userId and points required' });
+  }
+  const newBalance = addPoints(userId, points);
+  res.json({ success: true, userId, awarded: points, newBalance, receiptId });
+});
+
+// Redeem reward with server-side validation
+app.post('/api/rewards/redeem', async (req, res) => {
+  const { userId, rewardId, cost, payoutInfo } = req.body;
+  
+  if (!userId || !rewardId || !cost) {
+    return res.status(400).json({ error: 'userId, rewardId, and cost required' });
+  }
+  
+  if (!payoutInfo || !payoutInfo.provider || !payoutInfo.accountNumber) {
+    return res.status(400).json({ error: 'payoutInfo (provider, accountNumber) required' });
+  }
+  
+  // === SERVER-SIDE VALIDATION ===
+  const validation = validateRedemption(userId, cost);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
+  
   try {
-    const userId = req.body?.userId || 'anonymous';
-
-    // ── Duplicate Detection ─────────────────────────────────────
-    if (req.file && req.file.buffer) {
-      const result = await checkDuplicate(req.file.buffer, userId, receiptStore);
-
-      if (result.status === 'exact') {
-        logDuplicateAttempt(userId, result.exactHash, 'exact', result.existingReceipt?.id, 100);
-        return res.status(409).json({
-          success: false,
-          error: 'DUPLICATE_RECEIPT',
-          message: 'This receipt has already been submitted.',
-          duplicateOf: result.existingReceipt?.id,
-          similarity: 100,
-        });
-      }
-
-      if (result.status === 'near') {
-        logDuplicateAttempt(userId, null, 'manual_review', result.existingReceipt?.id, result.similarity);
-        return res.status(409).json({
-          success: false,
-          error: 'NEAR_DUPLICATE_RECEIPT',
-          message: `This receipt is ${result.similarity}% similar to an existing receipt. Flagged for manual review.`,
-          duplicateOf: result.existingReceipt?.id,
-          similarity: result.similarity,
-          status: 'manual_review',
-        });
-      }
-    }
-
-    // ── Upload image to blob storage ────────────────────────────
-    if (req.file) {
-      const container = await getBlobContainer();
-      if (container) {
-        const blobName = `${Date.now()}-${req.file.originalname || 'receipt.jpg'}`;
-        const blockBlob = container.getBlockBlobClient(blobName);
-        await blockBlob.upload(req.file.buffer, req.file.buffer.length, {
-          blobHTTPHeaders: { blobContentType: req.file.mimetype },
-        });
-      }
-    }
-
-    // Simulate processing delay
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Generate mock receipt data
-    const store = STORES[Math.floor(Math.random() * STORES.length)];
-    const total = (Math.floor(Math.random() * 300) + 10) * 10;
-    const points = Math.floor(total / 10);
-
-    const receipt = {
-      id: Date.now().toString(),
+    // Initiate payout through provider
+    const payoutResult = await initiatePayout({
+      provider: payoutInfo.provider,
+      accountNumber: payoutInfo.accountNumber,
+      amount: cost,
       userId,
-      store,
-      total,
-      points,
-      date: new Date().toISOString(),
-      // Store hashes for duplicate detection
-      exactHash: req.file ? (await import('./services/imageHash').then(m => m.computeExactHash(req.file.buffer))).catch(() => null) : null,
-      perceptualHash: null,
-      items: [
-        { name: 'Item 1', price: Math.floor(total * 0.4) },
-        { name: 'Item 2', price: Math.floor(total * 0.35) },
-        { name: 'Item 3', price: total - Math.floor(total * 0.4) - Math.floor(total * 0.35) },
-      ],
-    };
-
-    // Compute perceptual hash (async, don't block receipt creation)
-    if (req.file && req.file.buffer) {
-      import('./services/imageHash').then(m => {
-        m.computePerceptualHash(req.file.buffer).then(hash => {
-          receipt.perceptualHash = hash;
-        }).catch(() => {});
-      }).catch(() => {});
-    }
-
-    // Save to Cosmos DB if available
-    const container = await getCosmosContainer();
-    if (container) {
-      await container.items.create(receipt);
-    } else {
-      receiptStore.push(receipt);
-    }
-
-    res.json({ success: true, data: receipt });
-  } catch (err) {
-    console.error('Receipt upload error:', err.message);
-    res.status(500).json({ success: false, error: 'Failed to process receipt' });
-  }
-});
-
-// Get receipt history (optionally filtered by userId query param)
-app.get('/api/receipts', async (req, res) => {
-  try {
-    const { userId } = req.query;
-    const container = await getCosmosContainer();
-    if (container) {
-      const query = userId
-        ? { query: 'SELECT * FROM c WHERE c.userId = @userId ORDER BY c.date DESC', parameters: [{ name: '@userId', value: userId }] }
-        : 'SELECT * FROM c ORDER BY c.date DESC';
-      const { resources } = await container.items.query(query).fetchAll();
-      res.json({ success: true, data: resources });
-    } else {
-      let data = receiptStore.sort((a, b) => new Date(b.date) - new Date(a.date));
-      if (userId) data = data.filter((r) => r.userId === userId);
-      res.json({ success: true, data });
-    }
-  } catch (err) {
-    console.error('Receipts fetch error:', err.message);
-    res.status(500).json({ success: false, error: 'Failed to fetch receipts' });
-  }
-});
-
-// Redeem reward
-app.post('/api/rewards/redeem', (req, res) => {
-  const { rewardId, cost } = req.body;
-
-  if (!rewardId || typeof rewardId !== 'string' || rewardId.trim() === '') {
-    return res.status(400).json({ success: false, error: 'rewardId is required and must be a non-empty string' });
-  }
-  if (cost === undefined || cost === null || typeof cost !== 'number' || cost <= 0 || !Number.isFinite(cost)) {
-    return res.status(400).json({ success: false, error: 'cost is required and must be a positive number' });
-  }
-
-  setTimeout(() => {
+    });
+    
+    // Deduct points only after payout succeeds
+    deductPoints(userId, cost);
+    const newBalance = validation.newBalance;
+    
+    console.log(`[REDEMPTION] User ${userId} redeemed reward ${rewardId} for ${cost} points. Payout: ${payoutResult.transactionId}`);
+    
     res.json({
       success: true,
-      data: {
-        redemptionId: Date.now().toString(),
-        rewardId,
-        pointsUsed: cost,
-        status: 'completed',
-        message: 'Reward has been sent to your account.',
-      },
+      rewardId,
+      cost,
+      newBalance,
+      payout: payoutResult,
     });
-  }, 1000);
+  } catch (err) {
+    console.error('[REDEMPTION ERROR]', err.message);
+    res.status(500).json({ error: `Payout failed: ${err.message}` });
+  }
 });
 
-// Get rewards catalog
-app.get('/api/rewards', (req, res) => {
+// Receipt upload endpoint (multipart/form-data)
+app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No receipt image provided' });
+  }
+  
+  // In production: analyze receipt image for store and total
+  // For now: parse mock data from query params or body
+  const { store, total, points } = req.body;
+  
   res.json({
     success: true,
-    data: [
-      { id: '1', name: 'GCash', desc: 'P50 GCash Credit', cost: 500, category: 'E-Wallet' },
-      { id: '2', name: 'GCash', desc: 'P100 GCash Credit', cost: 1000, category: 'E-Wallet' },
-      { id: '3', name: 'Maya', desc: 'P50 Maya Credit', cost: 500, category: 'E-Wallet' },
-      { id: '4', name: 'Globe Load', desc: 'P50 Mobile Load', cost: 450, category: 'Mobile Load' },
-      { id: '5', name: 'Smart Load', desc: 'P50 Mobile Load', cost: 450, category: 'Mobile Load' },
-      { id: '6', name: 'SM Gift Card', desc: 'P100 SM Store Credit', cost: 900, category: 'Gift Cards' },
-      { id: '7', name: 'Jollibee', desc: 'P100 Jollibee Voucher', cost: 800, category: 'Food' },
-      { id: '8', name: 'Grab', desc: 'P50 Grab Credit', cost: 500, category: 'E-Wallet' },
-      { id: '9', name: 'Robinson', desc: 'P100 Store Credit', cost: 900, category: 'Gift Cards' },
-      { id: '10', name: "McDonald's", desc: 'P100 McD Voucher', cost: 800, category: 'Food' },
-    ],
+    store: store || 'SM Supermarket',
+    total: parseFloat(total) || 0,
+    points: parseInt(points) || 0,
+    receiptId: `RECEIPT_${Date.now()}`,
   });
 });
 
-// Get fraud audit log (admin endpoint)
-app.get('/api/admin/fraud-log', (req, res) => {
-  res.json({ success: true, data: getFraudLog() });
+// Legacy endpoint (for backwards compatibility)
+app.post('/api/scan', (req, res) => {
+  res.status(501).json({ error: 'Deprecated. Use /api/receipts/upload with multipart/form-data' });
 });
-
-if (require.main === module) {
-  app.listen(PORT, () => {
-    const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
-    console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
-    console.log('Endpoints:');
-    console.log('  POST /api/receipts/upload  - Scan a receipt (with duplicate detection)');
-    console.log('  GET  /api/receipts         - Get receipt history');
-    console.log('  POST /api/rewards/redeem   - Redeem a reward');
-    console.log('  GET  /api/rewards          - Get rewards catalog');
-    console.log('  GET  /api/health           - Health check');
-    console.log('  GET  /api/admin/fraud-log  - Fraud audit log');
-  });
-}
 
 module.exports = app;
