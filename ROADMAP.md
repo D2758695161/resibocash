@@ -2,6 +2,17 @@
 
 Receipt-scanning rewards app for Philippine retail (React Native + Express/Azure).
 
+## Audit Summary (2026-03-28)
+
+Critical gaps found:
+- **No auth** — `userId` defaults to `'anonymous'`; no user identity or data isolation
+- **Mock OCR** — receipt processing is `setTimeout` + random data; no real AI parsing
+- **Rewards not server-validated** — client deducts points locally; no server-side record of redemptions
+- **No deduplication** — same receipt can be scanned unlimited times to farm points
+- **Several UI affordances lead nowhere** — Play button, "See More", heart icon all decorative
+- **No mobile tests** — only `server/__tests__/api.test.js` exists; app has zero test coverage
+- **`services/api.js` missing** — CameraScreen imports `../services/api` but file doesn't exist at that path
+
 ---
 
 ## Phase 1 — MVP (Weeks 1–4)
