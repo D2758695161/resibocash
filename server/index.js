@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const { checkDuplicate, logDuplicateAttempt, getFraudLog } = require('./services/imageHash');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -15,7 +16,6 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin ${origin} not allowed`));
@@ -39,7 +39,7 @@ async function getCosmosContainer() {
     partitionKey: { paths: ['/userId'] },
   });
   cosmosContainer = container;
-  return container;
+  return cosmosContainer;
 }
 
 async function getBlobContainer() {
@@ -70,15 +70,46 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'ResiboCash API',
-    version: '1.0.0',
+    version: '1.1.0',
     mode: process.env.COSMOS_CONNECTION_STRING ? 'azure' : 'mock',
+    features: { duplicateDetection: true },
   });
 });
 
-// Scan receipt
+// Scan receipt with duplicate detection
 app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
   try {
-    // Upload image to blob storage if available
+    const userId = req.body?.userId || 'anonymous';
+
+    // ── Duplicate Detection ─────────────────────────────────────
+    if (req.file && req.file.buffer) {
+      const result = await checkDuplicate(req.file.buffer, userId, receiptStore);
+
+      if (result.status === 'exact') {
+        logDuplicateAttempt(userId, result.exactHash, 'exact', result.existingReceipt?.id, 100);
+        return res.status(409).json({
+          success: false,
+          error: 'DUPLICATE_RECEIPT',
+          message: 'This receipt has already been submitted.',
+          duplicateOf: result.existingReceipt?.id,
+          similarity: 100,
+        });
+      }
+
+      if (result.status === 'near') {
+        logDuplicateAttempt(userId, null, 'manual_review', result.existingReceipt?.id, result.similarity);
+        return res.status(409).json({
+          success: false,
+          error: 'NEAR_DUPLICATE_RECEIPT',
+          message: `This receipt is ${result.similarity}% similar to an existing receipt. Flagged for manual review.`,
+          duplicateOf: result.existingReceipt?.id,
+          similarity: result.similarity,
+          status: 'manual_review',
+        });
+      }
+    }
+
+    // ── Upload image to blob storage ────────────────────────────
     if (req.file) {
       const container = await getBlobContainer();
       if (container) {
@@ -100,17 +131,29 @@ app.post('/api/receipts/upload', upload.single('receipt'), async (req, res) => {
 
     const receipt = {
       id: Date.now().toString(),
-      userId: req.body?.userId || 'anonymous',
+      userId,
       store,
       total,
       points,
       date: new Date().toISOString(),
+      // Store hashes for duplicate detection
+      exactHash: req.file ? (await import('./services/imageHash').then(m => m.computeExactHash(req.file.buffer))).catch(() => null) : null,
+      perceptualHash: null,
       items: [
         { name: 'Item 1', price: Math.floor(total * 0.4) },
         { name: 'Item 2', price: Math.floor(total * 0.35) },
         { name: 'Item 3', price: total - Math.floor(total * 0.4) - Math.floor(total * 0.35) },
       ],
     };
+
+    // Compute perceptual hash (async, don't block receipt creation)
+    if (req.file && req.file.buffer) {
+      import('./services/imageHash').then(m => {
+        m.computePerceptualHash(req.file.buffer).then(hash => {
+          receipt.perceptualHash = hash;
+        }).catch(() => {});
+      }).catch(() => {});
+    }
 
     // Save to Cosmos DB if available
     const container = await getCosmosContainer();
@@ -193,16 +236,22 @@ app.get('/api/rewards', (req, res) => {
   });
 });
 
+// Get fraud audit log (admin endpoint)
+app.get('/api/admin/fraud-log', (req, res) => {
+  res.json({ success: true, data: getFraudLog() });
+});
+
 if (require.main === module) {
   app.listen(PORT, () => {
     const mode = process.env.COSMOS_CONNECTION_STRING ? 'AZURE' : 'MOCK';
     console.log(`ResiboCash API [${mode}] running on http://localhost:${PORT}`);
     console.log('Endpoints:');
-    console.log('  POST /api/receipts/upload  - Scan a receipt');
+    console.log('  POST /api/receipts/upload  - Scan a receipt (with duplicate detection)');
     console.log('  GET  /api/receipts         - Get receipt history');
     console.log('  POST /api/rewards/redeem   - Redeem a reward');
     console.log('  GET  /api/rewards          - Get rewards catalog');
     console.log('  GET  /api/health           - Health check');
+    console.log('  GET  /api/admin/fraud-log  - Fraud audit log');
   });
 }
 
